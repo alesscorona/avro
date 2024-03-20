@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"reflect"
 	"unsafe"
 
@@ -157,6 +158,9 @@ func encoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEnc
 	structDesc := describeStruct(cfg.getTagKey(), typ)
 
 	fields := make([]*structFieldEncoder, 0, len(rec.Fields()))
+
+	log.Println("ADD TO CACHE STRUCT", schema.CacheFingerprint(), " ", typ.RType())
+	cfg.addEncoderRefToCache(schema.CacheFingerprint(), typ.RType())
 	for _, field := range rec.Fields() {
 		sf := structDesc.Fields.Get(field.Name())
 		if sf != nil {
@@ -207,6 +211,17 @@ type structFieldEncoder struct {
 	field      []*reflect2.UnsafeStructField
 	defaultPtr unsafe.Pointer
 	encoder    ValEncoder
+}
+
+type nestedEncoder struct {
+	typ         reflect2.Type
+	fingerprint [32]byte
+	cfg         *frozenConfig
+}
+
+func (e *nestedEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
+	enc := e.cfg.getEncoderFromCache(e.fingerprint, e.typ.RType())
+	enc.Encode(ptr, w)
 }
 
 type structEncoder struct {

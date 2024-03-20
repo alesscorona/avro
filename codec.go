@@ -2,6 +2,7 @@ package avro
 
 import (
 	"fmt"
+	"log"
 	"math/big"
 	"reflect"
 	"time"
@@ -147,6 +148,7 @@ func (e *onePtrEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
 }
 
 func encoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+	log.Println(schema.String(), " ", schema.CacheFingerprint(), " ", schema.Type(), " ", typ.RType())
 	if enc := createEncoderOfMarshaler(cfg, schema, typ); enc != nil {
 		return enc
 	}
@@ -154,7 +156,14 @@ func encoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncod
 	if typ.Kind() == reflect.Interface {
 		return &interfaceEncoder{schema: schema, typ: typ}
 	}
-
+	log.Println("getEncoderFromCache => ", schema.String(), " ", schema.CacheFingerprint(), " ", schema.Type(), " ", typ.RType(), " ", cfg.getEncoderRefToCache(schema.CacheFingerprint(), typ.RType()))
+	if cfg.getEncoderRefToCache(schema.CacheFingerprint(), typ.RType()) {
+		return &nestedEncoder{
+			typ:         typ,
+			cfg:         cfg,
+			fingerprint: schema.CacheFingerprint(),
+		}
+	}
 	switch schema.Type() {
 	case String, Bytes, Int, Long, Float, Double, Boolean, Null:
 		return createEncoderOfNative(schema, typ)
@@ -163,6 +172,8 @@ func encoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncod
 		return createEncoderOfRecord(cfg, schema, typ)
 
 	case Ref:
+		log.Println("REF => ", schema.(*RefSchema).Schema().String(), " ", schema.(*RefSchema).Schema().CacheFingerprint(), " ", schema.(*RefSchema).Schema().Type(), " ", schema.Type(), " ", typ.RType())
+
 		return encoderOfType(cfg, schema.(*RefSchema).Schema(), typ)
 
 	case Enum:

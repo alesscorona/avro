@@ -31,6 +31,33 @@ func TestEncoder_RecordStruct(t *testing.T) {
 	assert.Equal(t, []byte{0x36, 0x06, 0x66, 0x6f, 0x6f}, buf.Bytes())
 }
 
+func TestEncoder_RecordStructNested(t *testing.T) {
+	defer ConfigTeardown()
+	type TestRecord struct {
+		A int64       `avro:"a"`
+		B *TestRecord `avro:"b"`
+	}
+
+	schema := `{
+	"type": "record",
+	"name": "test",
+	"fields" : [
+		{"name": "a", "type": "long"},
+	    {"name": "b", "type": ["test", "null"]}
+	]
+}`
+	obj := TestRecord{A: 27, B: &TestRecord{A: 34, B: nil}}
+	buf := &bytes.Buffer{}
+	enc, err := avro.NewEncoder(schema, buf)
+	require.NoError(t, err)
+
+	err = enc.Encode(obj)
+
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x36, 0x0, 0x44, 0x2}, buf.Bytes())
+
+}
+
 func TestEncoder_RecordStructPtr(t *testing.T) {
 	defer ConfigTeardown()
 
