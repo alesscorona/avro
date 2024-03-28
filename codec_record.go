@@ -4,27 +4,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"reflect"
 	"unsafe"
 
 	"github.com/modern-go/reflect2"
 )
 
-func createDecoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func createDecoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	switch typ.Kind() {
 	case reflect.Struct:
-		return decoderOfStruct(cfg, schema, typ)
+		return decoderOfStruct(cfg, schema, typ, seen)
 
 	case reflect.Map:
 		if typ.(reflect2.MapType).Key().Kind() != reflect.String ||
 			typ.(reflect2.MapType).Elem().Kind() != reflect.Interface {
 			break
 		}
-		return decoderOfRecord(cfg, schema, typ)
+		return decoderOfRecord(cfg, schema, typ, seen)
 
 	case reflect.Ptr:
-		return decoderOfPtr(cfg, schema, typ)
+		return decoderOfPtr(cfg, schema, typ, seen)
 
 	case reflect.Interface:
 		if ifaceType, ok := typ.(*reflect2.UnsafeIFaceType); ok {
@@ -35,31 +34,36 @@ func createDecoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) 
 	return &errorDecoder{err: fmt.Errorf("avro: %s is unsupported for avro %s", typ.String(), schema.Type())}
 }
 
-func createEncoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+func createEncoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	switch typ.Kind() {
 	case reflect.Struct:
-		return encoderOfStruct(cfg, schema, typ)
+		return encoderOfStruct(cfg, schema, typ, seen)
 
 	case reflect.Map:
 		if typ.(reflect2.MapType).Key().Kind() != reflect.String ||
 			typ.(reflect2.MapType).Elem().Kind() != reflect.Interface {
 			break
 		}
-		return encoderOfRecord(cfg, schema, typ)
+		return encoderOfRecord(cfg, schema, typ, seen)
 
 	case reflect.Ptr:
-		return encoderOfPtr(cfg, schema, typ)
+		return encoderOfPtr(cfg, schema, typ, seen)
 	}
 
 	return &errorEncoder{err: fmt.Errorf("avro: %s is unsupported for avro %s", typ.String(), schema.Type())}
 }
 
-func decoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func decoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	rec := schema.(*RecordSchema)
 	structDesc := describeStruct(cfg.getTagKey(), typ)
 
 	fields := make([]*structFieldDecoder, 0, len(rec.Fields()))
-
+	returnDec := &structDecoder{typ: typ, fields: fields}
+	//log.Println("DECODER OF STRUCT ", rec.String())
+	if foundDecoder := seen.Add(rec.String(), returnDec); foundDecoder != nil {
+		//log.Println("FOUNDDDDDDD DECODER ", rec.String(), " ", foundDecoder.fields)
+		return foundDecoder
+	}
 	for _, field := range rec.Fields() {
 		if field.action == FieldIgnore {
 			fields = append(fields, &structFieldDecoder{
@@ -90,21 +94,21 @@ func decoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDec
 			if field.hasDef {
 				fields = append(fields, &structFieldDecoder{
 					field:   sf.Field,
-					decoder: createDefaultDecoder(cfg, field, sf.Field[len(sf.Field)-1].Type()),
+					decoder: createDefaultDecoder(cfg, field, sf.Field[len(sf.Field)-1].Type(), seen),
 				})
 
 				continue
 			}
 		}
 
-		dec := decoderOfType(cfg, field.Type(), sf.Field[len(sf.Field)-1].Type())
+		dec := decoderOfType(cfg, field.Type(), sf.Field[len(sf.Field)-1].Type(), seen)
 		fields = append(fields, &structFieldDecoder{
 			field:   sf.Field,
 			decoder: dec,
 		})
 	}
-
-	return &structDecoder{typ: typ, fields: fields}
+	returnDec.fields = fields
+	return returnDec
 }
 
 type structFieldDecoder struct {
@@ -117,11 +121,11 @@ type structDecoder struct {
 	fields []*structFieldDecoder
 }
 
-func (d *structDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
+func (d *structDecoder) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	for _, field := range d.fields {
 		// Skip case
 		if field.field == nil {
-			field.decoder.Decode(nil, r)
+			field.decoder.Decode(nil, r, seen)
 			continue
 		}
 
@@ -142,7 +146,7 @@ func (d *structDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
 				fieldPtr = *((*unsafe.Pointer)(fieldPtr))
 			}
 		}
-		field.decoder.Decode(fieldPtr, r)
+		field.decoder.Decode(fieldPtr, r, seen)
 
 		if r.Error != nil && !errors.Is(r.Error, io.EOF) {
 			for _, f := range field.field {
@@ -153,20 +157,23 @@ func (d *structDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
 	}
 }
 
-func encoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+func encoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	rec := schema.(*RecordSchema)
 	structDesc := describeStruct(cfg.getTagKey(), typ)
 
 	fields := make([]*structFieldEncoder, 0, len(rec.Fields()))
-
-	log.Println("ADD TO CACHE STRUCT", schema.CacheFingerprint(), " ", typ.RType())
-	cfg.addEncoderRefToCache(schema.CacheFingerprint(), typ.RType())
+	returnEncoder := &structEncoder{typ: typ, fields: fields}
+	//log.Println("ENCODER OF STRUCT ", rec.String())
+	if foundEncoder := seen.Add(rec.String(), returnEncoder); foundEncoder != nil {
+		//log.Println("FOUNDDDDDDD ENCODER ", rec.String(), " ", foundEncoder.fields)
+		return foundEncoder
+	}
 	for _, field := range rec.Fields() {
 		sf := structDesc.Fields.Get(field.Name())
 		if sf != nil {
 			fields = append(fields, &structFieldEncoder{
 				field:   sf.Field,
-				encoder: encoderOfType(cfg, field.Type(), sf.Field[len(sf.Field)-1].Type()),
+				encoder: encoderOfType(cfg, field.Type(), sf.Field[len(sf.Field)-1].Type(), seen),
 			})
 			continue
 		}
@@ -188,14 +195,14 @@ func encoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEnc
 				defaultType := reflect2.TypeOf(&def)
 				fields = append(fields, &structFieldEncoder{
 					defaultPtr: reflect2.PtrOf(&def),
-					encoder:    encoderOfPtrUnion(cfg, field.Type(), defaultType),
+					encoder:    encoderOfPtrUnion(cfg, field.Type(), defaultType, seen),
 				})
 				continue
 			}
 		}
 
 		defaultType := reflect2.TypeOf(def)
-		defaultEncoder := encoderOfType(cfg, field.Type(), defaultType)
+		defaultEncoder := encoderOfType(cfg, field.Type(), defaultType, seen)
 		if defaultType.LikePtr() {
 			defaultEncoder = &onePtrEncoder{defaultEncoder}
 		}
@@ -204,7 +211,8 @@ func encoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEnc
 			encoder:    defaultEncoder,
 		})
 	}
-	return &structEncoder{typ: typ, fields: fields}
+	returnEncoder.fields = fields
+	return returnEncoder
 }
 
 type structFieldEncoder struct {
@@ -219,9 +227,9 @@ type nestedEncoder struct {
 	cfg         *frozenConfig
 }
 
-func (e *nestedEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
+func (e *nestedEncoder) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	enc := e.cfg.getEncoderFromCache(e.fingerprint, e.typ.RType())
-	enc.Encode(ptr, w)
+	enc.Encode(ptr, w, seen)
 }
 
 type structEncoder struct {
@@ -229,11 +237,11 @@ type structEncoder struct {
 	fields []*structFieldEncoder
 }
 
-func (e *structEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
+func (e *structEncoder) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	for _, field := range e.fields {
 		// Default case
 		if field.field == nil {
-			field.encoder.Encode(field.defaultPtr, w)
+			field.encoder.Encode(field.defaultPtr, w, seen)
 			continue
 		}
 
@@ -254,7 +262,7 @@ func (e *structEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
 				fieldPtr = *((*unsafe.Pointer)(fieldPtr))
 			}
 		}
-		field.encoder.Encode(fieldPtr, w)
+		field.encoder.Encode(fieldPtr, w, seen)
 
 		if w.Error != nil && !errors.Is(w.Error, io.EOF) {
 			for _, f := range field.field {
@@ -265,7 +273,7 @@ func (e *structEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
 	}
 }
 
-func decoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func decoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	rec := schema.(*RecordSchema)
 	mapType := typ.(*reflect2.UnsafeMapType)
 
@@ -283,7 +291,7 @@ func decoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDec
 			if field.hasDef {
 				fields[i] = recordMapDecoderField{
 					name:    field.Name(),
-					decoder: createDefaultDecoder(cfg, field, mapType.Elem()),
+					decoder: createDefaultDecoder(cfg, field, mapType.Elem(), seen),
 				}
 				continue
 			}
@@ -291,7 +299,7 @@ func decoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDec
 
 		fields[i] = recordMapDecoderField{
 			name:    field.Name(),
-			decoder: newEfaceDecoder(cfg, field.Type()),
+			decoder: newEfaceDecoder(cfg, field.Type(), seen),
 		}
 	}
 
@@ -314,14 +322,14 @@ type recordMapDecoder struct {
 	fields   []recordMapDecoderField
 }
 
-func (d *recordMapDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
+func (d *recordMapDecoder) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	if d.mapType.UnsafeIsNil(ptr) {
 		d.mapType.UnsafeSet(ptr, d.mapType.UnsafeMakeMap(len(d.fields)))
 	}
 
 	for _, field := range d.fields {
 		elemPtr := d.elemType.UnsafeNew()
-		field.decoder.Decode(elemPtr, r)
+		field.decoder.Decode(elemPtr, r, seen)
 		if field.skip {
 			continue
 		}
@@ -334,7 +342,7 @@ func (d *recordMapDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
 	}
 }
 
-func encoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+func encoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	rec := schema.(*RecordSchema)
 	mapType := typ.(*reflect2.UnsafeMapType)
 
@@ -344,7 +352,7 @@ func encoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEnc
 			name:    field.Name(),
 			hasDef:  field.HasDefault(),
 			def:     field.Default(),
-			encoder: encoderOfType(cfg, field.Type(), mapType.Elem()),
+			encoder: encoderOfType(cfg, field.Type(), mapType.Elem(), seen),
 		}
 
 		if field.HasDefault() {
@@ -359,7 +367,7 @@ func encoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEnc
 			}
 
 			defaultType := reflect2.TypeOf(fields[i].def)
-			fields[i].defEncoder = encoderOfType(cfg, field.Type(), defaultType)
+			fields[i].defEncoder = encoderOfType(cfg, field.Type(), defaultType, seen)
 			if defaultType.LikePtr() {
 				fields[i].defEncoder = &onePtrEncoder{fields[i].defEncoder}
 			}
@@ -385,7 +393,7 @@ type recordMapEncoder struct {
 	fields  []mapEncoderField
 }
 
-func (e *recordMapEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
+func (e *recordMapEncoder) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	for _, field := range e.fields {
 		// The first property of mapEncoderField is the name, so a pointer
 		// to field is a pointer to the name.
@@ -403,11 +411,11 @@ func (e *recordMapEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
 			}
 
 			defPtr := reflect2.PtrOf(field.def)
-			field.defEncoder.Encode(defPtr, w)
+			field.defEncoder.Encode(defPtr, w, seen)
 			continue
 		}
 
-		field.encoder.Encode(valPtr, w)
+		field.encoder.Encode(valPtr, w, seen)
 
 		if w.Error != nil && !errors.Is(w.Error, io.EOF) {
 			w.Error = fmt.Errorf("%s: %w", field.name, w.Error)
@@ -421,7 +429,7 @@ type recordIfaceDecoder struct {
 	valType *reflect2.UnsafeIFaceType
 }
 
-func (d *recordIfaceDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
+func (d *recordIfaceDecoder) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	obj := d.valType.UnsafeIndirect(ptr)
 	if reflect2.IsNil(obj) {
 		r.ReportError("decode non empty interface", "can not unmarshal into nil")

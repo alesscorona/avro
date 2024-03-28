@@ -2,7 +2,6 @@ package avro
 
 import (
 	"fmt"
-	"log"
 	"math/big"
 	"reflect"
 	"time"
@@ -19,30 +18,51 @@ var (
 
 type null struct{}
 
+type seenEncoderStructCache map[string]*structEncoder
+
+func (c seenEncoderStructCache) Add(name string, encoder *structEncoder) *structEncoder {
+	if encoderFound, ok := c[name]; ok {
+		return encoderFound
+	}
+	c[name] = encoder
+	return nil
+}
+
+type seenDecoderStructCache map[string]*structDecoder
+
+func (c seenDecoderStructCache) Add(name string, decoder *structDecoder) *structDecoder {
+	if decoderFound, ok := c[name]; ok {
+		return decoderFound
+	}
+	c[name] = decoder
+	return nil
+}
+
 // ValDecoder represents an internal value decoder.
 //
 // You should never use ValDecoder directly.
 type ValDecoder interface {
-	Decode(ptr unsafe.Pointer, r *Reader)
+	Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache)
 }
 
 // ValEncoder represents an internal value encoder.
 //
 // You should never use ValEncoder directly.
 type ValEncoder interface {
-	Encode(ptr unsafe.Pointer, w *Writer)
+	Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache)
 }
 
 // ReadVal parses Avro value and stores the result in the value pointed to by obj.
 func (r *Reader) ReadVal(schema Schema, obj any) {
 	decoder := r.cfg.getDecoderFromCache(schema.CacheFingerprint(), reflect2.RTypeOf(obj))
+	seen := seenDecoderStructCache{}
 	if decoder == nil {
 		typ := reflect2.TypeOf(obj)
 		if typ.Kind() != reflect.Ptr {
 			r.ReportError("ReadVal", "can only unmarshal into pointer")
 			return
 		}
-		decoder = r.cfg.DecoderOf(schema, typ)
+		decoder = r.cfg.DecoderOf(schema, typ, seen)
 	}
 
 	ptr := reflect2.PtrOf(obj)
@@ -51,20 +71,22 @@ func (r *Reader) ReadVal(schema Schema, obj any) {
 		return
 	}
 
-	decoder.Decode(ptr, r)
+	decoder.Decode(ptr, r, seen)
 }
 
 // WriteVal writes the Avro encoding of obj.
 func (w *Writer) WriteVal(schema Schema, val any) {
 	encoder := w.cfg.getEncoderFromCache(schema.Fingerprint(), reflect2.RTypeOf(val))
+	seen := seenEncoderStructCache{}
 	if encoder == nil {
 		typ := reflect2.TypeOf(val)
-		encoder = w.cfg.EncoderOf(schema, typ)
+
+		encoder = w.cfg.EncoderOf(schema, typ, seen)
 	}
-	encoder.Encode(reflect2.PtrOf(val), w)
+	encoder.Encode(reflect2.PtrOf(val), w, seen)
 }
 
-func (c *frozenConfig) DecoderOf(schema Schema, typ reflect2.Type) ValDecoder {
+func (c *frozenConfig) DecoderOf(schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	rtype := typ.RType()
 	decoder := c.getDecoderFromCache(schema.CacheFingerprint(), rtype)
 	if decoder != nil {
@@ -72,12 +94,12 @@ func (c *frozenConfig) DecoderOf(schema Schema, typ reflect2.Type) ValDecoder {
 	}
 
 	ptrType := typ.(*reflect2.UnsafePtrType)
-	decoder = decoderOfType(c, schema, ptrType.Elem())
+	decoder = decoderOfType(c, schema, ptrType.Elem(), seen)
 	c.addDecoderToCache(schema.CacheFingerprint(), rtype, decoder)
 	return decoder
 }
 
-func decoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func decoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	if dec := createDecoderOfMarshaler(cfg, schema, typ); dec != nil {
 		return dec
 	}
@@ -85,7 +107,7 @@ func decoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecod
 	// Handle eface case when it isnt a union
 	if typ.Kind() == reflect.Interface && schema.Type() != Union {
 		if _, ok := typ.(*reflect2.UnsafeIFaceType); !ok {
-			return newEfaceDecoder(cfg, schema)
+			return newEfaceDecoder(cfg, schema, seen)
 		}
 	}
 
@@ -94,22 +116,22 @@ func decoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecod
 		return createDecoderOfNative(schema.(*PrimitiveSchema), typ)
 
 	case Record:
-		return createDecoderOfRecord(cfg, schema, typ)
+		return createDecoderOfRecord(cfg, schema, typ, seen)
 
 	case Ref:
-		return decoderOfType(cfg, schema.(*RefSchema).Schema(), typ)
+		return decoderOfType(cfg, schema.(*RefSchema).Schema(), typ, seen)
 
 	case Enum:
 		return createDecoderOfEnum(schema, typ)
 
 	case Array:
-		return createDecoderOfArray(cfg, schema, typ)
+		return createDecoderOfArray(cfg, schema, typ, seen)
 
 	case Map:
-		return createDecoderOfMap(cfg, schema, typ)
+		return createDecoderOfMap(cfg, schema, typ, seen)
 
 	case Union:
-		return createDecoderOfUnion(cfg, schema, typ)
+		return createDecoderOfUnion(cfg, schema, typ, seen)
 
 	case Fixed:
 		return createDecoderOfFixed(schema, typ)
@@ -120,7 +142,7 @@ func decoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecod
 	}
 }
 
-func (c *frozenConfig) EncoderOf(schema Schema, typ reflect2.Type) ValEncoder {
+func (c *frozenConfig) EncoderOf(schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	if typ == nil {
 		typ = reflect2.TypeOf((*null)(nil))
 	}
@@ -130,8 +152,7 @@ func (c *frozenConfig) EncoderOf(schema Schema, typ reflect2.Type) ValEncoder {
 	if encoder != nil {
 		return encoder
 	}
-
-	encoder = encoderOfType(c, schema, typ)
+	encoder = encoderOfType(c, schema, typ, seen)
 	if typ.LikePtr() {
 		encoder = &onePtrEncoder{encoder}
 	}
@@ -143,12 +164,11 @@ type onePtrEncoder struct {
 	enc ValEncoder
 }
 
-func (e *onePtrEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
-	e.enc.Encode(noescape(unsafe.Pointer(&ptr)), w)
+func (e *onePtrEncoder) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
+	e.enc.Encode(noescape(unsafe.Pointer(&ptr)), w, seen)
 }
 
-func encoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
-	log.Println(schema.String(), " ", schema.CacheFingerprint(), " ", schema.Type(), " ", typ.RType())
+func encoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	if enc := createEncoderOfMarshaler(cfg, schema, typ); enc != nil {
 		return enc
 	}
@@ -156,37 +176,27 @@ func encoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncod
 	if typ.Kind() == reflect.Interface {
 		return &interfaceEncoder{schema: schema, typ: typ}
 	}
-	log.Println("getEncoderFromCache => ", schema.String(), " ", schema.CacheFingerprint(), " ", schema.Type(), " ", typ.RType(), " ", cfg.getEncoderRefToCache(schema.CacheFingerprint(), typ.RType()))
-	if cfg.getEncoderRefToCache(schema.CacheFingerprint(), typ.RType()) {
-		return &nestedEncoder{
-			typ:         typ,
-			cfg:         cfg,
-			fingerprint: schema.CacheFingerprint(),
-		}
-	}
 	switch schema.Type() {
 	case String, Bytes, Int, Long, Float, Double, Boolean, Null:
 		return createEncoderOfNative(schema, typ)
 
 	case Record:
-		return createEncoderOfRecord(cfg, schema, typ)
+		return createEncoderOfRecord(cfg, schema, typ, seen)
 
 	case Ref:
-		log.Println("REF => ", schema.(*RefSchema).Schema().String(), " ", schema.(*RefSchema).Schema().CacheFingerprint(), " ", schema.(*RefSchema).Schema().Type(), " ", schema.Type(), " ", typ.RType())
-
-		return encoderOfType(cfg, schema.(*RefSchema).Schema(), typ)
+		return encoderOfType(cfg, schema.(*RefSchema).Schema(), typ, seen)
 
 	case Enum:
 		return createEncoderOfEnum(schema, typ)
 
 	case Array:
-		return createEncoderOfArray(cfg, schema, typ)
+		return createEncoderOfArray(cfg, schema, typ, seen)
 
 	case Map:
-		return createEncoderOfMap(cfg, schema, typ)
+		return createEncoderOfMap(cfg, schema, typ, seen)
 
 	case Union:
-		return createEncoderOfUnion(cfg, schema, typ)
+		return createEncoderOfUnion(cfg, schema, typ, seen)
 
 	case Fixed:
 		return createEncoderOfFixed(schema, typ)
@@ -201,7 +211,7 @@ type errorDecoder struct {
 	err error
 }
 
-func (d *errorDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (d *errorDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	if r.Error == nil {
 		r.Error = d.err
 	}
@@ -211,7 +221,7 @@ type errorEncoder struct {
 	err error
 }
 
-func (e *errorEncoder) Encode(_ unsafe.Pointer, w *Writer) {
+func (e *errorEncoder) Encode(_ unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	if w.Error == nil {
 		w.Error = e.err
 	}

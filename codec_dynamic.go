@@ -13,9 +13,9 @@ type efaceDecoder struct {
 	dec    ValDecoder
 }
 
-func newEfaceDecoder(cfg *frozenConfig, schema Schema) *efaceDecoder {
+func newEfaceDecoder(cfg *frozenConfig, schema Schema, seen seenDecoderStructCache) *efaceDecoder {
 	typ, _ := genericReceiver(schema)
-	dec := decoderOfType(cfg, schema, typ)
+	dec := decoderOfType(cfg, schema, typ, seen)
 
 	return &efaceDecoder{
 		schema: schema,
@@ -24,16 +24,16 @@ func newEfaceDecoder(cfg *frozenConfig, schema Schema) *efaceDecoder {
 	}
 }
 
-func (d *efaceDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
+func (d *efaceDecoder) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	pObj := (*any)(ptr)
 	if *pObj == nil {
-		*pObj = genericDecode(d.typ, d.dec, r)
+		*pObj = genericDecode(d.typ, d.dec, r, seen)
 		return
 	}
 
 	typ := reflect2.TypeOf(*pObj)
 	if typ.Kind() != reflect.Ptr {
-		*pObj = genericDecode(d.typ, d.dec, r)
+		*pObj = genericDecode(d.typ, d.dec, r, seen)
 		return
 	}
 
@@ -53,7 +53,7 @@ type interfaceEncoder struct {
 	typ    reflect2.Type
 }
 
-func (e *interfaceEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
+func (e *interfaceEncoder) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	obj := e.typ.UnsafeIndirect(ptr)
 	w.WriteVal(e.schema, obj)
 }

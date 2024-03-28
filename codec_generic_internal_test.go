@@ -220,9 +220,10 @@ func TestGenericDecode(t *testing.T) {
 
 			typ, err := genericReceiver(schema)
 			require.NoError(t, err)
-			dec := decoderOfType(DefaultConfig.(*frozenConfig), schema, typ)
+			seen := seenDecoderStructCache{}
+			dec := decoderOfType(DefaultConfig.(*frozenConfig), schema, typ, seen)
 
-			got := genericDecode(typ, dec, r)
+			got := genericDecode(typ, dec, r, seen)
 
 			test.wantErr(t, r.Error)
 			assert.Equal(t, test.want, got)

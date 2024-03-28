@@ -37,9 +37,9 @@ func TestConfig_ReusesDecoders(t *testing.T) {
 	]
 }`)
 	typ := reflect2.TypeOfPtr(&testObj{})
-
-	dec1 := cfg.DecoderOf(schema, typ)
-	dec2 := cfg.DecoderOf(schema, typ)
+	seen := seenDecoderStructCache{}
+	dec1 := cfg.DecoderOf(schema, typ, seen)
+	dec2 := cfg.DecoderOf(schema, typ, seen)
 
 	assert.Same(t, dec1, dec2)
 }
@@ -69,9 +69,10 @@ func TestConfig_ReusesDecoders_WithWriterFingerprint(t *testing.T) {
 	schema2 := MustParse(sch)
 	fp := [32]byte{1, 2, 3}
 	schema2.(*RecordSchema).writerFingerprint = &fp
-
-	dec1 := cfg.DecoderOf(schema1, typ)
-	dec2 := cfg.DecoderOf(schema2, typ)
+	seen := seenDecoderStructCache{}
+	dec1 := cfg.DecoderOf(schema1, typ, seen)
+	seen2 := seenDecoderStructCache{}
+	dec2 := cfg.DecoderOf(schema2, typ, seen2)
 
 	assert.NotSame(t, dec1, dec2)
 }
@@ -96,9 +97,9 @@ func TestConfig_ReusesDecoders_WithEnum(t *testing.T) {
 	schema2.(*EnumSchema).encodedSymbols = []string{"foo", "bar"}
 	fp := schema1.Fingerprint()
 	schema2.(*EnumSchema).writerFingerprint = &fp
-
-	dec1 := cfg.DecoderOf(schema1, typ)
-	dec2 := cfg.DecoderOf(schema2, typ)
+	seen := seenDecoderStructCache{}
+	dec1 := cfg.DecoderOf(schema1, typ, seen)
+	dec2 := cfg.DecoderOf(schema2, typ, seen)
 
 	assert.NotSame(t, dec1, dec2)
 }
@@ -123,9 +124,10 @@ func TestConfig_DisableCache_DoesNotReuseDecoders(t *testing.T) {
 	]
 }`)
 	typ := reflect2.TypeOfPtr(&testObj{})
-
-	dec1 := cfg.DecoderOf(schema, typ)
-	dec2 := cfg.DecoderOf(schema, typ)
+	seen := seenDecoderStructCache{}
+	dec1 := cfg.DecoderOf(schema, typ, seen)
+	seen2 := seenDecoderStructCache{}
+	dec2 := cfg.DecoderOf(schema, typ, seen2)
 
 	assert.NotSame(t, dec1, dec2)
 }
@@ -149,9 +151,9 @@ func TestConfig_ReusesEncoders(t *testing.T) {
 	]
 }`)
 	typ := reflect2.TypeOfPtr(testObj{})
-
-	enc1 := cfg.EncoderOf(schema, typ)
-	enc2 := cfg.EncoderOf(schema, typ)
+	seen := seenEncoderStructCache{}
+	enc1 := cfg.EncoderOf(schema, typ, seen)
+	enc2 := cfg.EncoderOf(schema, typ, seen)
 
 	assert.Same(t, enc1, enc2)
 }
@@ -176,9 +178,9 @@ func TestConfig_DisableCache_DoesNotReuseEncoders(t *testing.T) {
 	]
 }`)
 	typ := reflect2.TypeOfPtr(testObj{})
-
-	enc1 := cfg.EncoderOf(schema, typ)
-	enc2 := cfg.EncoderOf(schema, typ)
+	seen := seenEncoderStructCache{}
+	enc1 := cfg.EncoderOf(schema, typ, seen)
+	enc2 := cfg.EncoderOf(schema, typ, seen)
 
 	assert.NotSame(t, enc1, enc2)
 }

@@ -8,9 +8,9 @@ import (
 	"github.com/modern-go/reflect2"
 )
 
-func genericDecode(typ reflect2.Type, dec ValDecoder, r *Reader) any {
+func genericDecode(typ reflect2.Type, dec ValDecoder, r *Reader, seen seenDecoderStructCache) any {
 	ptr := typ.UnsafeNew()
-	dec.Decode(ptr, r)
+	dec.Decode(ptr, r, seen)
 	if r.Error != nil {
 		return nil
 	}

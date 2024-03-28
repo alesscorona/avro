@@ -56,43 +56,43 @@ func createSkipDecoder(schema Schema) ValDecoder {
 
 type boolSkipDecoder struct{}
 
-func (*boolSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (*boolSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipBool()
 }
 
 type intSkipDecoder struct{}
 
-func (*intSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (*intSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipInt()
 }
 
 type longSkipDecoder struct{}
 
-func (*longSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (*longSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipLong()
 }
 
 type floatSkipDecoder struct{}
 
-func (*floatSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (*floatSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipFloat()
 }
 
 type doubleSkipDecoder struct{}
 
-func (*doubleSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (*doubleSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipDouble()
 }
 
 type stringSkipDecoder struct{}
 
-func (*stringSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (*stringSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipString()
 }
 
 type bytesSkipDecoder struct{}
 
-func (c *bytesSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (c *bytesSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipBytes()
 }
 
@@ -113,9 +113,9 @@ type recordSkipDecoder struct {
 	decoders []ValDecoder
 }
 
-func (d *recordSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (d *recordSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	for _, decoder := range d.decoders {
-		decoder.Decode(nil, r)
+		decoder.Decode(nil, r, seen)
 	}
 }
 
@@ -123,7 +123,7 @@ type enumSkipDecoder struct {
 	symbols []string
 }
 
-func (c *enumSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (c *enumSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipInt()
 }
 
@@ -140,7 +140,7 @@ type sliceSkipDecoder struct {
 	decoder ValDecoder
 }
 
-func (d *sliceSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (d *sliceSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	for {
 		l, size := r.ReadBlockHeader()
 		if l == 0 {
@@ -153,7 +153,7 @@ func (d *sliceSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
 		}
 
 		for i := 0; i < int(l); i++ {
-			d.decoder.Decode(nil, r)
+			d.decoder.Decode(nil, r, seen)
 		}
 	}
 }
@@ -171,7 +171,7 @@ type mapSkipDecoder struct {
 	decoder ValDecoder
 }
 
-func (d *mapSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (d *mapSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	for {
 		l, size := r.ReadBlockHeader()
 		if l == 0 {
@@ -185,7 +185,7 @@ func (d *mapSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
 
 		for i := 0; i < int(l); i++ {
 			r.SkipString()
-			d.decoder.Decode(nil, r)
+			d.decoder.Decode(nil, r, seen)
 		}
 	}
 }
@@ -202,7 +202,7 @@ type unionSkipDecoder struct {
 	schema *UnionSchema
 }
 
-func (d *unionSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (d *unionSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	_, resSchema := getUnionSchema(d.schema, r)
 	if resSchema == nil {
 		return
@@ -213,13 +213,13 @@ func (d *unionSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
 		return
 	}
 
-	createSkipDecoder(resSchema).Decode(nil, r)
+	createSkipDecoder(resSchema).Decode(nil, r, seen)
 }
 
 type fixedSkipDecoder struct {
 	size int
 }
 
-func (d *fixedSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
+func (d *fixedSkipDecoder) Decode(_ unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	r.SkipNBytes(d.size)
 }

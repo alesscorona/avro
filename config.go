@@ -99,10 +99,10 @@ type API interface {
 	NewDecoder(schema Schema, r io.Reader) *Decoder
 
 	// DecoderOf returns the value decoder for a given schema and type.
-	DecoderOf(schema Schema, typ reflect2.Type) ValDecoder
+	DecoderOf(schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder
 
 	// EncoderOf returns the value encoder for a given schema and type.
-	EncoderOf(schema Schema, tpy reflect2.Type) ValEncoder
+	EncoderOf(schema Schema, tpy reflect2.Type, seen seenEncoderStructCache) ValEncoder
 
 	// Register registers names to their types for resolution. All primitive types are pre-registered.
 	Register(name string, obj any)

@@ -11,38 +11,38 @@ import (
 	"github.com/modern-go/reflect2"
 )
 
-func createDecoderOfMap(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func createDecoderOfMap(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	if typ.Kind() == reflect.Map {
 		keyType := typ.(reflect2.MapType).Key()
 		switch {
 		case keyType.Kind() == reflect.String:
-			return decoderOfMap(cfg, schema, typ)
+			return decoderOfMap(cfg, schema, typ, seen)
 		case keyType.Implements(textUnmarshalerType):
-			return decoderOfMapUnmarshaler(cfg, schema, typ)
+			return decoderOfMapUnmarshaler(cfg, schema, typ, seen)
 		}
 	}
 
 	return &errorDecoder{err: fmt.Errorf("avro: %s is unsupported for Avro %s", typ.String(), schema.Type())}
 }
 
-func createEncoderOfMap(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+func createEncoderOfMap(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	if typ.Kind() == reflect.Map {
 		keyType := typ.(reflect2.MapType).Key()
 		switch {
 		case keyType.Kind() == reflect.String:
-			return encoderOfMap(cfg, schema, typ)
+			return encoderOfMap(cfg, schema, typ, seen)
 		case keyType.Implements(textMarshalerType):
-			return encoderOfMapMarshaler(cfg, schema, typ)
+			return encoderOfMapMarshaler(cfg, schema, typ, seen)
 		}
 	}
 
 	return &errorEncoder{err: fmt.Errorf("avro: %s is unsupported for Avro %s", typ.String(), schema.Type())}
 }
 
-func decoderOfMap(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func decoderOfMap(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	m := schema.(*MapSchema)
 	mapType := typ.(*reflect2.UnsafeMapType)
-	decoder := decoderOfType(cfg, m.Values(), mapType.Elem())
+	decoder := decoderOfType(cfg, m.Values(), mapType.Elem(), seen)
 
 	return &mapDecoder{
 		mapType:  mapType,
@@ -57,7 +57,7 @@ type mapDecoder struct {
 	decoder  ValDecoder
 }
 
-func (d *mapDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
+func (d *mapDecoder) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	if d.mapType.UnsafeIsNil(ptr) {
 		d.mapType.UnsafeSet(ptr, d.mapType.UnsafeMakeMap(0))
 	}
@@ -71,7 +71,7 @@ func (d *mapDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
 		for i := int64(0); i < l; i++ {
 			keyPtr := reflect2.PtrOf(r.ReadString())
 			elemPtr := d.elemType.UnsafeNew()
-			d.decoder.Decode(elemPtr, r)
+			d.decoder.Decode(elemPtr, r, seen)
 
 			d.mapType.UnsafeSetIndex(ptr, keyPtr, elemPtr)
 		}
@@ -82,10 +82,10 @@ func (d *mapDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
 	}
 }
 
-func decoderOfMapUnmarshaler(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func decoderOfMapUnmarshaler(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	m := schema.(*MapSchema)
 	mapType := typ.(*reflect2.UnsafeMapType)
-	decoder := decoderOfType(cfg, m.Values(), mapType.Elem())
+	decoder := decoderOfType(cfg, m.Values(), mapType.Elem(), seen)
 
 	return &mapDecoderUnmarshaler{
 		mapType:  mapType,
@@ -102,7 +102,7 @@ type mapDecoderUnmarshaler struct {
 	decoder  ValDecoder
 }
 
-func (d *mapDecoderUnmarshaler) Decode(ptr unsafe.Pointer, r *Reader) {
+func (d *mapDecoderUnmarshaler) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	if d.mapType.UnsafeIsNil(ptr) {
 		d.mapType.UnsafeSet(ptr, d.mapType.UnsafeMakeMap(0))
 	}
@@ -130,7 +130,7 @@ func (d *mapDecoderUnmarshaler) Decode(ptr unsafe.Pointer, r *Reader) {
 			}
 
 			elemPtr := d.elemType.UnsafeNew()
-			d.decoder.Decode(elemPtr, r)
+			d.decoder.Decode(elemPtr, r, seen)
 
 			d.mapType.UnsafeSetIndex(ptr, keyPtr, elemPtr)
 		}
@@ -141,10 +141,10 @@ func (d *mapDecoderUnmarshaler) Decode(ptr unsafe.Pointer, r *Reader) {
 	}
 }
 
-func encoderOfMap(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+func encoderOfMap(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	m := schema.(*MapSchema)
 	mapType := typ.(*reflect2.UnsafeMapType)
-	encoder := encoderOfType(cfg, m.Values(), mapType.Elem())
+	encoder := encoderOfType(cfg, m.Values(), mapType.Elem(), seen)
 
 	return &mapEncoder{
 		blockLength: cfg.getBlockLength(),
@@ -159,7 +159,7 @@ type mapEncoder struct {
 	encoder     ValEncoder
 }
 
-func (e *mapEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
+func (e *mapEncoder) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	blockLength := e.blockLength
 
 	iter := e.mapType.UnsafeIterate(ptr)
@@ -170,7 +170,7 @@ func (e *mapEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
 			for i = 0; iter.HasNext() && i < blockLength; i++ {
 				keyPtr, elemPtr := iter.UnsafeNext()
 				w.WriteString(*((*string)(keyPtr)))
-				e.encoder.Encode(elemPtr, w)
+				e.encoder.Encode(elemPtr, w, seen)
 			}
 
 			return int64(i)
@@ -186,10 +186,10 @@ func (e *mapEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
 	}
 }
 
-func encoderOfMapMarshaler(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+func encoderOfMapMarshaler(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	m := schema.(*MapSchema)
 	mapType := typ.(*reflect2.UnsafeMapType)
-	encoder := encoderOfType(cfg, m.Values(), mapType.Elem())
+	encoder := encoderOfType(cfg, m.Values(), mapType.Elem(), seen)
 
 	return &mapEncoderMarshaller{
 		blockLength: cfg.getBlockLength(),
@@ -206,7 +206,7 @@ type mapEncoderMarshaller struct {
 	encoder     ValEncoder
 }
 
-func (e *mapEncoderMarshaller) Encode(ptr unsafe.Pointer, w *Writer) {
+func (e *mapEncoderMarshaller) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	blockLength := e.blockLength
 
 	iter := e.mapType.UnsafeIterate(ptr)
@@ -230,7 +230,7 @@ func (e *mapEncoderMarshaller) Encode(ptr unsafe.Pointer, w *Writer) {
 				}
 				w.WriteString(string(b))
 
-				e.encoder.Encode(elemPtr, w)
+				e.encoder.Encode(elemPtr, w, seen)
 			}
 			return int64(i)
 		})

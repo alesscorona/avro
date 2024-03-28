@@ -98,13 +98,13 @@ func createEncoderOfFixed(schema Schema, typ reflect2.Type) ValEncoder {
 
 type fixedUint64Codec [8]byte
 
-func (c *fixedUint64Codec) Decode(ptr unsafe.Pointer, r *Reader) {
+func (c *fixedUint64Codec) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	buffer := c[:]
 	r.Read(buffer)
 	*(*uint64)(ptr) = binary.BigEndian.Uint64(buffer)
 }
 
-func (c *fixedUint64Codec) Encode(ptr unsafe.Pointer, w *Writer) {
+func (c *fixedUint64Codec) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	buffer := c[:]
 	binary.BigEndian.PutUint64(buffer, *(*uint64)(ptr))
 	_, _ = w.Write(buffer)
@@ -114,13 +114,13 @@ type fixedCodec struct {
 	arrayType *reflect2.UnsafeArrayType
 }
 
-func (c *fixedCodec) Decode(ptr unsafe.Pointer, r *Reader) {
+func (c *fixedCodec) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	for i := 0; i < c.arrayType.Len(); i++ {
 		c.arrayType.UnsafeSetIndex(ptr, i, reflect2.PtrOf(r.readByte()))
 	}
 }
 
-func (c *fixedCodec) Encode(ptr unsafe.Pointer, w *Writer) {
+func (c *fixedCodec) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	for i := 0; i < c.arrayType.Len(); i++ {
 		bytePtr := c.arrayType.UnsafeGetIndex(ptr, i)
 		w.writeByte(*((*byte)(bytePtr)))
@@ -133,13 +133,13 @@ type fixedDecimalCodec struct {
 	size  int
 }
 
-func (c *fixedDecimalCodec) Decode(ptr unsafe.Pointer, r *Reader) {
+func (c *fixedDecimalCodec) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	b := make([]byte, c.size)
 	r.Read(b)
 	*((*big.Rat)(ptr)) = *ratFromBytes(b, c.scale)
 }
 
-func (c *fixedDecimalCodec) Encode(ptr unsafe.Pointer, w *Writer) {
+func (c *fixedDecimalCodec) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	r := *((**big.Rat)(ptr))
 	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(c.scale)), nil)
 	i := (&big.Int{}).Mul(r.Num(), scale)
@@ -170,7 +170,7 @@ func (c *fixedDecimalCodec) Encode(ptr unsafe.Pointer, w *Writer) {
 
 type fixedDurationCodec struct{}
 
-func (*fixedDurationCodec) Decode(ptr unsafe.Pointer, r *Reader) {
+func (*fixedDurationCodec) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	b := make([]byte, 12)
 	r.Read(b)
 	var duration LogicalDuration
@@ -180,7 +180,7 @@ func (*fixedDurationCodec) Decode(ptr unsafe.Pointer, r *Reader) {
 	*((*LogicalDuration)(ptr)) = duration
 }
 
-func (*fixedDurationCodec) Encode(ptr unsafe.Pointer, w *Writer) {
+func (*fixedDurationCodec) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	duration := (*LogicalDuration)(ptr)
 	b := make([]byte, 4)
 	binary.LittleEndian.PutUint32(b, duration.Months)

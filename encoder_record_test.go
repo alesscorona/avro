@@ -46,7 +46,7 @@ func TestEncoder_RecordStructNested(t *testing.T) {
 	    {"name": "b", "type": ["test", "null"]}
 	]
 }`
-	obj := TestRecord{A: 27, B: &TestRecord{A: 34, B: nil}}
+	obj := TestRecord{A: 11, B: nil}
 	buf := &bytes.Buffer{}
 	enc, err := avro.NewEncoder(schema, buf)
 	require.NoError(t, err)
@@ -54,8 +54,16 @@ func TestEncoder_RecordStructNested(t *testing.T) {
 	err = enc.Encode(obj)
 
 	require.NoError(t, err)
-	assert.Equal(t, []byte{0x36, 0x0, 0x44, 0x2}, buf.Bytes())
+	assert.Equal(t, []byte{0x16, 0x2}, buf.Bytes())
 
+	dec, err := avro.NewDecoder(schema, bytes.NewReader([]byte{0x16, 0x2}))
+	require.NoError(t, err)
+
+	got := &TestRecord{}
+	err = dec.Decode(&got)
+
+	require.NoError(t, err)
+	assert.Equal(t, &obj, got)
 }
 
 func TestEncoder_RecordStructPtr(t *testing.T) {

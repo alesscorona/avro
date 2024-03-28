@@ -40,7 +40,7 @@ type enumCodec struct {
 	enum *EnumSchema
 }
 
-func (c *enumCodec) Decode(ptr unsafe.Pointer, r *Reader) {
+func (c *enumCodec) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	i := int(r.ReadInt())
 
 	symbol, ok := c.enum.Symbol(i)
@@ -52,7 +52,7 @@ func (c *enumCodec) Decode(ptr unsafe.Pointer, r *Reader) {
 	*((*string)(ptr)) = symbol
 }
 
-func (c *enumCodec) Encode(ptr unsafe.Pointer, w *Writer) {
+func (c *enumCodec) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	str := *((*string)(ptr))
 	for i, sym := range c.enum.symbols {
 		if str != sym {
@@ -72,7 +72,7 @@ type enumTextMarshalerCodec struct {
 	ptr  bool
 }
 
-func (c *enumTextMarshalerCodec) Decode(ptr unsafe.Pointer, r *Reader) {
+func (c *enumTextMarshalerCodec) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	i := int(r.ReadInt())
 
 	symbol, ok := c.enum.Symbol(i)
@@ -99,7 +99,7 @@ func (c *enumTextMarshalerCodec) Decode(ptr unsafe.Pointer, r *Reader) {
 	}
 }
 
-func (c *enumTextMarshalerCodec) Encode(ptr unsafe.Pointer, w *Writer) {
+func (c *enumTextMarshalerCodec) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	var obj any
 	if c.ptr {
 		obj = c.typ.PackEFace(ptr)

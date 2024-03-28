@@ -38,7 +38,7 @@ type textMarshalerCodec struct {
 	typ reflect2.Type
 }
 
-func (c textMarshalerCodec) Decode(ptr unsafe.Pointer, r *Reader) {
+func (c textMarshalerCodec) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	obj := c.typ.UnsafeIndirect(ptr)
 	if reflect2.IsNil(obj) {
 		ptrType := c.typ.(*reflect2.UnsafePtrType)
@@ -54,7 +54,7 @@ func (c textMarshalerCodec) Decode(ptr unsafe.Pointer, r *Reader) {
 	}
 }
 
-func (c textMarshalerCodec) Encode(ptr unsafe.Pointer, w *Writer) {
+func (c textMarshalerCodec) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	obj := c.typ.UnsafeIndirect(ptr)
 	if c.typ.IsNullable() && reflect2.IsNil(obj) {
 		w.WriteBytes(nil)

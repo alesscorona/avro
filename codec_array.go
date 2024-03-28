@@ -10,26 +10,26 @@ import (
 	"github.com/modern-go/reflect2"
 )
 
-func createDecoderOfArray(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func createDecoderOfArray(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	if typ.Kind() == reflect.Slice {
-		return decoderOfArray(cfg, schema, typ)
+		return decoderOfArray(cfg, schema, typ, seen)
 	}
 
 	return &errorDecoder{err: fmt.Errorf("avro: %s is unsupported for Avro %s", typ.String(), schema.Type())}
 }
 
-func createEncoderOfArray(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+func createEncoderOfArray(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	if typ.Kind() == reflect.Slice {
-		return encoderOfArray(cfg, schema, typ)
+		return encoderOfArray(cfg, schema, typ, seen)
 	}
 
 	return &errorEncoder{err: fmt.Errorf("avro: %s is unsupported for Avro %s", typ.String(), schema.Type())}
 }
 
-func decoderOfArray(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValDecoder {
+func decoderOfArray(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenDecoderStructCache) ValDecoder {
 	arr := schema.(*ArraySchema)
 	sliceType := typ.(*reflect2.UnsafeSliceType)
-	decoder := decoderOfType(cfg, arr.Items(), sliceType.Elem())
+	decoder := decoderOfType(cfg, arr.Items(), sliceType.Elem(), seen)
 
 	return &arrayDecoder{typ: sliceType, decoder: decoder}
 }
@@ -39,7 +39,7 @@ type arrayDecoder struct {
 	decoder ValDecoder
 }
 
-func (d *arrayDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
+func (d *arrayDecoder) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {
 	var size int
 	sliceType := d.typ
 
@@ -55,7 +55,7 @@ func (d *arrayDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
 
 		for i := start; i < size; i++ {
 			elemPtr := sliceType.UnsafeGetIndex(ptr, i)
-			d.decoder.Decode(elemPtr, r)
+			d.decoder.Decode(elemPtr, r, seen)
 			if r.Error != nil && !errors.Is(r.Error, io.EOF) {
 				r.Error = fmt.Errorf("%s: %w", d.typ.String(), r.Error)
 				return
@@ -68,10 +68,10 @@ func (d *arrayDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
 	}
 }
 
-func encoderOfArray(cfg *frozenConfig, schema Schema, typ reflect2.Type) ValEncoder {
+func encoderOfArray(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen seenEncoderStructCache) ValEncoder {
 	arr := schema.(*ArraySchema)
 	sliceType := typ.(*reflect2.UnsafeSliceType)
-	encoder := encoderOfType(cfg, arr.Items(), sliceType.Elem())
+	encoder := encoderOfType(cfg, arr.Items(), sliceType.Elem(), seen)
 
 	return &arrayEncoder{
 		blockLength: cfg.getBlockLength(),
@@ -86,7 +86,7 @@ type arrayEncoder struct {
 	encoder     ValEncoder
 }
 
-func (e *arrayEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
+func (e *arrayEncoder) Encode(ptr unsafe.Pointer, w *Writer, seen seenEncoderStructCache) {
 	blockLength := e.blockLength
 	length := e.typ.UnsafeLengthOf(ptr)
 
@@ -95,7 +95,7 @@ func (e *arrayEncoder) Encode(ptr unsafe.Pointer, w *Writer) {
 			count := int64(0)
 			for j := i; j < i+blockLength && j < length; j++ {
 				elemPtr := e.typ.UnsafeGetIndex(ptr, j)
-				e.encoder.Encode(elemPtr, w)
+				e.encoder.Encode(elemPtr, w, seen)
 				if w.Error != nil && !errors.Is(w.Error, io.EOF) {
 					w.Error = fmt.Errorf("%s: %w", e.typ.String(), w.Error)
 					return count
