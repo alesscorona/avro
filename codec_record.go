@@ -58,7 +58,7 @@ func decoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen s
 	structDesc := describeStruct(cfg.getTagKey(), typ)
 
 	fields := make([]*structFieldDecoder, 0, len(rec.Fields()))
-	returnDec := &structDecoder{typ: typ, fields: fields}
+	returnDec := &structDecoder{typ: typ, fields: nil}
 	//log.Println("DECODER OF STRUCT ", rec.String())
 	if foundDecoder := seen.Add(rec.String(), returnDec); foundDecoder != nil {
 		//log.Println("FOUNDDDDDDD DECODER ", rec.String(), " ", foundDecoder.fields)
@@ -162,7 +162,7 @@ func encoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen s
 	structDesc := describeStruct(cfg.getTagKey(), typ)
 
 	fields := make([]*structFieldEncoder, 0, len(rec.Fields()))
-	returnEncoder := &structEncoder{typ: typ, fields: fields}
+	returnEncoder := &structEncoder{typ: typ, fields: nil}
 	//log.Println("ENCODER OF STRUCT ", rec.String())
 	if foundEncoder := seen.Add(rec.String(), returnEncoder); foundEncoder != nil {
 		//log.Println("FOUNDDDDDDD ENCODER ", rec.String(), " ", foundEncoder.fields)
