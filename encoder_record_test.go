@@ -46,7 +46,7 @@ func TestEncoder_RecordStructNested(t *testing.T) {
 	    {"name": "b", "type": ["test", "null"]}
 	]
 }`
-	obj := TestRecord{A: 11, B: nil}
+	obj := TestRecord{A: 1, B: &TestRecord{A: 2, B: &TestRecord{A: 3, B: &TestRecord{A: 4, B: &TestRecord{A: 5, B: &TestRecord{A: 6, B: nil}}}}}}
 	buf := &bytes.Buffer{}
 	enc, err := avro.NewEncoder(schema, buf)
 	require.NoError(t, err)
@@ -54,9 +54,9 @@ func TestEncoder_RecordStructNested(t *testing.T) {
 	err = enc.Encode(obj)
 
 	require.NoError(t, err)
-	assert.Equal(t, []byte{0x16, 0x2}, buf.Bytes())
+	assert.Equal(t, []byte{0x2, 0x0, 0x4, 0x0, 0x6, 0x0, 0x8, 0x0, 0xa, 0x0, 0xc, 0x2}, buf.Bytes())
 
-	dec, err := avro.NewDecoder(schema, bytes.NewReader([]byte{0x16, 0x2}))
+	dec, err := avro.NewDecoder(schema, bytes.NewReader([]byte{0x2, 0x0, 0x4, 0x0, 0x6, 0x0, 0x8, 0x0, 0xa, 0x0, 0xc, 0x2}))
 	require.NoError(t, err)
 
 	got := &TestRecord{}
@@ -64,6 +64,29 @@ func TestEncoder_RecordStructNested(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, &obj, got)
+
+	type TestRecord2 struct {
+		A int64         `avro:"a"`
+		B string        `avro:"b"`
+		C []TestRecord2 `avro:"c"`
+	}
+	schema2 := `{"type":"array", "items": {"type": "record", "name": "test", "fields" : [{"name": "a", "type": "long"}, {"name": "b", "type": "string"}, {"name": "c", "type": { "type" : "array", "items" : "test" }}]}}`
+	buf2 := bytes.NewBuffer([]byte{})
+	enc2, err := avro.NewEncoder(schema2, buf2)
+	err = enc2.Encode([]TestRecord2{{A: 1, B: "foo", C: []TestRecord2{{A: 2, B: "foo", C: []TestRecord2{}}, {A: 3, B: "foo", C: []TestRecord2{}}, {A: 4, B: "foo", C: []TestRecord2{}}}}, {A: 5, B: "foo", C: []TestRecord2{}}})
+	require.NoError(t, err)
+	data := []byte{0x3, 0x40, 0x2, 0x6, 0x66, 0x6f, 0x6f, 0x5, 0x24, 0x4, 0x6, 0x66, 0x6f, 0x6f, 0x0, 0x6, 0x6, 0x66, 0x6f, 0x6f, 0x0, 0x8, 0x6, 0x66, 0x6f, 0x6f, 0x0, 0x0, 0xa, 0x6, 0x66, 0x6f, 0x6f, 0x0, 0x0}
+	assert.Equal(t, data, buf2.Bytes())
+
+	dec2, err := avro.NewDecoder(schema2, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	got2 := []TestRecord2{}
+	err = dec2.Decode(&got2)
+
+	require.NoError(t, err)
+	assert.Equal(t, &obj, got)
+
 }
 
 func TestEncoder_RecordStructPtr(t *testing.T) {
