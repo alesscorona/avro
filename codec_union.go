@@ -67,7 +67,12 @@ func decoderOfMapUnion(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen
 		if s.Type() == Null {
 			continue
 		}
-		typeDecs[i] = newEfaceDecoder(cfg, s, seen)
+		var decEface ValDecoder
+		if dec := seen.Check(s.String()); dec != nil {
+			typeDecs[i] = decEface
+		} else {
+			typeDecs[i] = newEfaceDecoder(cfg, s, seen)
+		}
 	}
 
 	return &mapUnionDecoder{

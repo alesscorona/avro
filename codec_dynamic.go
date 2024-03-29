@@ -15,13 +15,15 @@ type efaceDecoder struct {
 
 func newEfaceDecoder(cfg *frozenConfig, schema Schema, seen seenDecoderStructCache) *efaceDecoder {
 	typ, _ := genericReceiver(schema)
-	dec := decoderOfType(cfg, schema, typ, seen)
-
-	return &efaceDecoder{
+	returnDec := &efaceDecoder{
 		schema: schema,
 		typ:    typ,
-		dec:    dec,
+		dec:    nil,
 	}
+	seen.Add(schema.String(), returnDec)
+	dec := decoderOfType(cfg, schema, typ, seen)
+	returnDec.dec = dec
+	return returnDec
 }
 
 func (d *efaceDecoder) Decode(ptr unsafe.Pointer, r *Reader, seen seenDecoderStructCache) {

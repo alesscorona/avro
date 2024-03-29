@@ -73,7 +73,9 @@ func TestEncoder_RecordStructNested(t *testing.T) {
 	schema2 := `{"type":"array", "items": {"type": "record", "name": "test", "fields" : [{"name": "a", "type": "long"}, {"name": "b", "type": "string"}, {"name": "c", "type": { "type" : "array", "items" : "test" }}]}}`
 	buf2 := bytes.NewBuffer([]byte{})
 	enc2, err := avro.NewEncoder(schema2, buf2)
-	err = enc2.Encode([]TestRecord2{{A: 1, B: "foo", C: []TestRecord2{{A: 2, B: "foo", C: []TestRecord2{}}, {A: 3, B: "foo", C: []TestRecord2{}}, {A: 4, B: "foo", C: []TestRecord2{}}}}, {A: 5, B: "foo", C: []TestRecord2{}}})
+	//obj2 := []TestRecord2{{A: 1, B: "foo", C: []TestRecord2{{A: 2, B: "foo", C: []TestRecord2{}}, {A: 3, B: "foo", C: []TestRecord2{}}, {A: 4, B: "foo", C: []TestRecord2{}}}}, {A: 5, B: "foo", C: []TestRecord2{}}}
+	obj2 := []map[string]interface{}{{"a": int64(1), "b": "foo", "c": []map[string]interface{}{{"a": int64(2), "b": "foo", "c": []map[string]interface{}{}}, {"a": int64(3), "b": "foo", "c": []map[string]interface{}{}}, {"a": int64(4), "b": "foo", "c": []map[string]interface{}{}}}}, {"a": int64(5), "b": "foo", "c": []map[string]interface{}{}}}
+	err = enc2.Encode(obj2)
 	require.NoError(t, err)
 	data := []byte{0x3, 0x40, 0x2, 0x6, 0x66, 0x6f, 0x6f, 0x5, 0x24, 0x4, 0x6, 0x66, 0x6f, 0x6f, 0x0, 0x6, 0x6, 0x66, 0x6f, 0x6f, 0x0, 0x8, 0x6, 0x66, 0x6f, 0x6f, 0x0, 0x0, 0xa, 0x6, 0x66, 0x6f, 0x6f, 0x0, 0x0}
 	assert.Equal(t, data, buf2.Bytes())
@@ -81,7 +83,7 @@ func TestEncoder_RecordStructNested(t *testing.T) {
 	dec2, err := avro.NewDecoder(schema2, bytes.NewReader(data))
 	require.NoError(t, err)
 
-	got2 := []TestRecord2{}
+	got2 := []map[string]interface{}{}
 	err = dec2.Decode(&got2)
 
 	require.NoError(t, err)

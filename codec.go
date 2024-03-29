@@ -18,9 +18,9 @@ var (
 
 type null struct{}
 
-type seenEncoderStructCache map[string]*structEncoder
+type seenEncoderStructCache map[string]ValEncoder
 
-func (c seenEncoderStructCache) Add(name string, encoder *structEncoder) *structEncoder {
+func (c seenEncoderStructCache) Add(name string, encoder ValEncoder) ValEncoder {
 	if encoderFound, ok := c[name]; ok {
 		return encoderFound
 	}
@@ -28,13 +28,19 @@ func (c seenEncoderStructCache) Add(name string, encoder *structEncoder) *struct
 	return nil
 }
 
-type seenDecoderStructCache map[string]*structDecoder
+type seenDecoderStructCache map[string]ValDecoder
 
-func (c seenDecoderStructCache) Add(name string, decoder *structDecoder) *structDecoder {
+func (c seenDecoderStructCache) Add(name string, decoder ValDecoder) ValDecoder {
 	if decoderFound, ok := c[name]; ok {
 		return decoderFound
 	}
 	c[name] = decoder
+	return nil
+}
+func (c seenDecoderStructCache) Check(name string) ValDecoder {
+	if decoderFound, ok := c[name]; ok {
+		return decoderFound
+	}
 	return nil
 }
 
@@ -103,7 +109,6 @@ func decoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen see
 	if dec := createDecoderOfMarshaler(cfg, schema, typ); dec != nil {
 		return dec
 	}
-
 	// Handle eface case when it isnt a union
 	if typ.Kind() == reflect.Interface && schema.Type() != Union {
 		if _, ok := typ.(*reflect2.UnsafeIFaceType); !ok {
@@ -172,7 +177,6 @@ func encoderOfType(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen see
 	if enc := createEncoderOfMarshaler(cfg, schema, typ); enc != nil {
 		return enc
 	}
-
 	if typ.Kind() == reflect.Interface {
 		return &interfaceEncoder{schema: schema, typ: typ}
 	}

@@ -59,9 +59,7 @@ func decoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen s
 
 	fields := make([]*structFieldDecoder, 0, len(rec.Fields()))
 	returnDec := &structDecoder{typ: typ, fields: nil}
-	//log.Println("DECODER OF STRUCT ", rec.String())
 	if foundDecoder := seen.Add(rec.String(), returnDec); foundDecoder != nil {
-		//log.Println("FOUNDDDDDDD DECODER ", rec.String(), " ", foundDecoder.fields)
 		return foundDecoder
 	}
 	for _, field := range rec.Fields() {
@@ -163,9 +161,7 @@ func encoderOfStruct(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen s
 
 	fields := make([]*structFieldEncoder, 0, len(rec.Fields()))
 	returnEncoder := &structEncoder{typ: typ, fields: nil}
-	//log.Println("ENCODER OF STRUCT ", rec.String())
 	if foundEncoder := seen.Add(rec.String(), returnEncoder); foundEncoder != nil {
-		//log.Println("FOUNDDDDDDD ENCODER ", rec.String(), " ", foundEncoder.fields)
 		return foundEncoder
 	}
 	for _, field := range rec.Fields() {
@@ -296,10 +292,15 @@ func decoderOfRecord(cfg *frozenConfig, schema Schema, typ reflect2.Type, seen s
 				continue
 			}
 		}
-
+		var decEface ValDecoder
+		if dec := seen.Check(field.Type().String()); dec != nil {
+			decEface = dec
+		} else {
+			decEface = newEfaceDecoder(cfg, field.Type(), seen)
+		}
 		fields[i] = recordMapDecoderField{
 			name:    field.Name(),
-			decoder: newEfaceDecoder(cfg, field.Type(), seen),
+			decoder: decEface,
 		}
 	}
 
