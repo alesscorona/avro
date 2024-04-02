@@ -114,9 +114,6 @@ type frozenConfig struct {
 	decoderCache sync.Map // map[cacheKey]ValDecoder
 	encoderCache sync.Map // map[cacheKey]ValEncoder
 
-	decoderRefCache sync.Map // map[cacheKey]ValDecoder
-	encoderRefCache sync.Map // map[cacheKey]ValEncoder
-
 	readerPool *sync.Pool
 	writerPool *sync.Pool
 
@@ -204,39 +201,6 @@ func (c *frozenConfig) Register(name string, obj any) {
 type cacheKey struct {
 	fingerprint [32]byte
 	rtype       uintptr
-}
-
-func (c *frozenConfig) addDecoderRefToCache(fingerprint [32]byte, rtype uintptr, dec ValDecoder) {
-	key := cacheKey{fingerprint: fingerprint, rtype: rtype}
-	c.decoderRefCache.Store(key, &dec)
-}
-
-func (c *frozenConfig) getDecoderRefToCache(fingerprint [32]byte, rtype uintptr) bool {
-	key := cacheKey{fingerprint: fingerprint, rtype: rtype}
-	if dec, ok := c.decoderRefCache.Load(key); ok {
-		return dec.(bool)
-	}
-	return false
-}
-
-func (c *frozenConfig) addEncoderRefToCache(fingerprint [32]byte, rtype uintptr) {
-	key := cacheKey{fingerprint: fingerprint, rtype: rtype}
-	c.encoderRefCache.Store(key, true)
-}
-
-func (c *frozenConfig) getEncoderRefToCache(fingerprint [32]byte, rtype uintptr) bool {
-	key := cacheKey{fingerprint: fingerprint, rtype: rtype}
-	if dec, ok := c.encoderRefCache.Load(key); ok {
-		return dec.(bool)
-	}
-	return false
-}
-
-func (c *frozenConfig) getAllEncoderRefToCache(final ValEncoder) {
-	c.encoderRefCache.Range(func(key, value any) bool {
-		value = final
-		return true
-	})
 }
 
 func (c *frozenConfig) addDecoderToCache(fingerprint [32]byte, rtype uintptr, dec ValDecoder) {
